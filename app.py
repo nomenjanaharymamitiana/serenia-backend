@@ -136,6 +136,18 @@ async def update_profile(user_id: str, data: UserUpdate):
     except Exception as e:
         print(f"Erreur Update: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+# Suppression de compte
+@app.delete("/api/user/delete/{user_id}")
+async def delete_user(user_id: str):
+    try:
+        response = supabase.table("user").delete().eq("id_user", user_id).execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail="ID introuvable")
+
+        return {"status": "success", "message": "Compte supprime"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Echec de la suppression")
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
