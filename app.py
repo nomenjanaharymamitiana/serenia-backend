@@ -12,7 +12,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    print("❌ ERREUR: Variables d'environnement manquantes !")
+    print("ERREUR: Variables d'environnement manquantes !")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -35,6 +35,13 @@ class UserSignup(BaseModel):
     est_anonyme: bool = False
     pseudo_anonyme: str = None
     est_deprime: bool = False
+from typing import Optional
+
+class UserUpdate(BaseModel):
+    pseudo: Optional[str] = None
+    pseudo_anonyme: Optional[str] = None
+    est_anonyme: Optional[bool] = None
+    est_deprime: Optional[bool] = None
 
 # --- ROUTES ---
 
@@ -58,7 +65,7 @@ async def signup(user: UserSignup):
         salt = bcrypt.gensalt()
         hashed_password = bcrypt.hashpw(password_bytes, salt).decode('utf-8')
     except Exception as e:
-        print(f"🔥 Erreur hachage: {e}")
+        print(f" Erreur hachage: {e}")
         raise HTTPException(status_code=500, detail="Erreur lors de la sécurisation du mot de passe.")
 
     # 3. Préparation des données pour Supabase
@@ -100,7 +107,35 @@ async def signup(user: UserSignup):
         
         # Pour le débuggage en remote, on renvoie l'erreur détaillée
         raise HTTPException(status_code=500, detail=f"Erreur base de données: {error_msg}")
+# --- ROUTE : MODIFICATION DU PROFIL ---
+@app.put("/api/user/update/{user_id}")
+async def update_profile(user_id: str, data: UserUpdate):
+    """
+    Met à jour les informations d'un utilisateur existant via son ID.
+    """
+    # On filtre les champs envoyés pour ne garder que ceux qui ne sont pas None
+    data_to_update = {k: v for k, v in data.dict().items() if v is not None}
+    
+    if not data_to_update:
+        raise HTTPException(status_code=400, detail="Aucune donnée fournie pour la modification.")
 
+    try:
+        # Mise à jour dans Supabase avec filtre sur l'id_user
+        response = supabase.table("user").update(data_to_update).eq("id_user", user_id).execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Utilisateur non trouvé.")
+
+        updated_user = response.data[0]
+        # On s'assure de ne pas renvoyer le mot de passe s'il était présent
+        if "password" in updated_user:
+            del updated_user["password"]
+
+        return {"status": "success", "message": "Profil mis à jour", "user": updated_user}
+
+    except Exception as e:
+        print(f"Erreur Update: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
