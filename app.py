@@ -104,7 +104,7 @@ async def signup(user: UserSignup):
 
     except Exception as e:
         error_msg = str(e)
-        print(f"🔥 Erreur Supabase: {error_msg}")
+        print(f"Erreur Supabase: {error_msg}")
         
         if "duplicate key" in error_msg.lower():
             raise HTTPException(status_code=400, detail="Cet email est déjà utilisé.")
@@ -157,36 +157,28 @@ async def delete_user(user_id: str):
 @app.post("/api/auth/login")
 async def login(credentials: UserLogin):
     try:
-        # Recuperation de l'utilisateur par email
-        response = supabase.table("user").select("*").eq("email", credentials.email.lower()).execute()
+        # Correction : le nom de la table sur ton screenshot est "utilisateurs"
+        query = supabase.table("utilisateurs").select("*").eq("email", credentials.email.lower()).execute()
         
-        if not response.data:
+        if not query.data:
             raise HTTPException(status_code=401, detail="Identifiants incorrects")
 
-        user_info = response.data[0]
+        user_info = query.data[0]
 
-        # Verification du mot de passe hache
-        password_bytes = credentials.password.encode('utf-8')
-        hashed_bytes = user_info["password"].encode('utf-8')
-
-        if not bcrypt.checkpw(password_bytes, hashed_bytes):
+        # Verification du mot de passe
+        stored_hash = user_info.get("password")
+        if not bcrypt.checkpw(credentials.password.encode('utf-8'), stored_hash.encode('utf-8')):
             raise HTTPException(status_code=401, detail="Identifiants incorrects")
 
-        # Nettoyage des donnees sensibles avant retour
-        user_info.pop("password", None)
+        # Nettoyage des donnees sensibles
+        response_data = dict(user_info)
+        response_data.pop("password", None)
 
-        return {
-            "status": "success",
-            "message": "Connexion reussie",
-            "user": user_info
-        }
+        return {"status": "success", "data": response_data}
 
-    except HTTPException as he:
-        raise he
     except Exception as e:
-        print(f"Erreur Login: {str(e)}")
-        raise HTTPException(status_code=500, detail="Erreur lors de l'authentification")
-
+        print(f"Erreur Login: {e}")
+        raise HTTPException(status_code=500, detail="Erreur interne")
 # --- ROUTE : DECONNEXION (LOGOUT) ---
 @app.post("/api/auth/logout")
 async def logout():
