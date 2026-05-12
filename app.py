@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
 from supabase import create_client, Client
-
+import jwt
+from datetime import datetime, timedelta
 # --- CONFIGURATION ---
 load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -26,7 +27,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+SECRET_KEY = "votre_cle_secrete_eni_sereina_2026" 
+ALGORITHM = "HS256"
 # --- MODÈLES DE DONNÉES ---
 class UserSignup(BaseModel):
     pseudo: str
@@ -154,31 +156,62 @@ async def delete_user(user_id: str):
         raise HTTPException(status_code=500, detail="Echec de la suppression")
 
 # --- ROUTE : CONNEXION (LOGIN) ---
+
 @app.post("/api/auth/login")
 async def login(credentials: UserLogin):
     try:
-        # Correction : le nom de la table sur ton screenshot est "utilisateurs"
+        # 1. On cherche l'utilisateur dans la table 'utilisateurs' (vue sur ton screenshot)
+        # On utilise .lower() pour éviter les erreurs de majuscules dans l'email
         query = supabase.table("utilisateurs").select("*").eq("email", credentials.email.lower()).execute()
         
+        # 2. Si l'utilisateur n'existe pas
         if not query.data:
-            raise HTTPException(status_code=401, detail="Identifiants incorrects")
+            raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
 
         user_info = query.data[0]
 
-        # Verification du mot de passe
-        stored_hash = user_info.get("password")
-        if not bcrypt.checkpw(credentials.password.encode('utf-8'), stored_hash.encode('utf-8')):
-            raise HTTPException(status_code=401, detail="Identifiants incorrects")
+        # 3. Vérification du mot de passe avec bcrypt
+        # On compare le mot de passe reçu avec le hash stocké en base
+        password_byte = credentials.password.encode('utf-8')
+        stored_hash_byte = user_info["password"].encode('utf-8')
 
-        # Nettoyage des donnees sensibles
-        response_data = dict(user_info)
-        response_data.pop("password", None)
+        if not bcrypt.checkpw(password_byte, stored_hash_byte):
+            raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
 
-        return {"status": "success", "data": response_data}
+        # 4. GÉNÉRATION DU TOKEN 
+        expire = datetime.utcnow() + timedelta(days=30)
+        
+        # Le 'payload' contient les infos que React pourra lire (sans le mot de passe !)
+        payload = {
+            "user_id": str(user_info.get("id_user") or user_info.get("id")), # Sécurité si id ou id_user
+            "email": user_info["email"],
+            "exp": int(expire.timestamp()) # Conversion en timestamp pour JWT
+        }
+        
+        token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
+        
+        user_data = {
+            "id_user": user_info["id_user"],
+            "pseudo": user_info.get("pseudo"),
+            "est_anonyme": user_info.get("est_anonyme"),
+            "pseudo_anonyme": user_info.get("pseudo_anonyme")
+        }
+
+        # 6. RÉPONSE FINALE
+        return {
+            "status": "success",
+            "message": "Connexion réussie",
+            "token": token, 
+            "user": user_data
+        }
+
+    except HTTPException as http_err:
+        raise http_err
     except Exception as e:
-        print(f"Erreur Login: {e}")
-        raise HTTPException(status_code=500, detail="Erreur interne")
+        # On affiche l'erreur dans tes logs Render pour le debug
+        print(f"ERREUR LOGIN : {str(e)}")
+        raise HTTPException(status_code=500, detail="Une erreur interne est survenue")
 # --- ROUTE : DECONNEXION (LOGOUT) ---
 @app.post("/api/auth/logout")
 async def logout():
